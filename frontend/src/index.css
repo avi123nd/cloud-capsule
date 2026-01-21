@@ -1,0 +1,174 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-neutral-50 text-neutral-900;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', 
+      'Segoe UI', 'Roboto', 'Arial', sans-serif;
+    font-weight: 400;
+    line-height: 1.6;
+    color: #1d1d1f;
+    background-color: #ffffff;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+  }
+}
+
+@layer utilities {
+  /* Luxury Design System */
+  .luxury-card {
+    @apply bg-white rounded-2xl shadow-sm border border-neutral-100;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .luxury-card:hover {
+    @apply shadow-xl border-neutral-200;
+    transform: translateY(-2px);
+  }
+
+  .luxury-button {
+    @apply bg-neutral-900 text-white px-8 py-4 rounded-full font-medium;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .luxury-button:hover {
+    @apply bg-neutral-800;
+    transform: translateY(-1px);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+  }
+
+  .luxury-button-secondary {
+    @apply bg-white text-neutral-900 px-8 py-4 rounded-full font-medium border border-neutral-200;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .luxury-button-secondary:hover {
+    @apply bg-neutral-50 border-neutral-300;
+    transform: translateY(-1px);
+  }
+
+  .luxury-input {
+    @apply w-full py-3.5 bg-white border border-neutral-300 rounded-2xl;
+    @apply focus:outline-none focus:border-neutral-500 focus:ring-0;
+    @apply text-neutral-900 placeholder:text-neutral-400;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    font-size: 16px;
+    line-height: 1.5;
+  }
+
+  .luxury-input:focus {
+    @apply border-neutral-500 shadow-sm;
+    transform: translateY(-1px);
+  }
+
+  .luxury-input::placeholder {
+    @apply text-neutral-400;
+  }
+
+  /* Input with left icon - ensure proper padding */
+  .luxury-input.has-left-icon {
+    padding-left: 3rem; /* 48px - enough space for icon + gap */
+  }
+
+  /* Input with right icon (password toggle) */
+  .luxury-input.has-right-icon {
+    padding-right: 3rem; /* 48px - enough space for icon + gap */
+  }
+
+  /* Input with both icons */
+  .luxury-input.has-left-icon.has-right-icon {
+    padding-left: 3rem;
+    padding-right: 3rem;
+  }
+
+  .subtle-fade-in {
+    animation: fadeIn 0.8s ease-out;
+  }
+
+  .subtle-slide-up {
+    animation: slideUp 0.6s ease-out;
+  }
+}
+
+/* Custom Scrollbar - Minimalist */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f5f5f5;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d4d4d4;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a3a3a3;
+}
+
+/* Subtle Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInScale {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Focus styles for accessibility */
+*:focus-visible {
+  outline: 2px solid #1d1d1f;
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid #1d1d1f;
+  outline-offset: 2px;
+}
+

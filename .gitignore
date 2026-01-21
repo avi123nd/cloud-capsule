@@ -1,0 +1,92 @@
+# Node
+/node_modules/
+
+# Environment files
+.env
+.env.*
+.venv/
+venv/
+env/
+ENV/
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+pip-wheel-metadata/
+
+# Packaging / build
+dist/
+build/
+*.egg-info/
+
+# Logs and databases
+*.log
+*.sqlite3
+coverage.xml
+.coverage
+htmlcov/
+
+# Editor/IDE
+.vscode/
+.idea/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temp files
+~$*
+*~
+*.tmp
+```// filepath: c:\Users\Aravind Balam\OneDrive\Documents\major-project\.gitignore
+# Node
+/node_modules/
+
+# Environment files
+.env
+.env.*
+.venv/
+venv/
+env/
+ENV/
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+pip-wheel-metadata/
+
+# Packaging / build
+dist/
+build/
+*.egg-info/
+
+# Logs and databases
+*.log
+*.sqlite3
+coverage.xml
+.coverage
+htmlcov/
+
+# Editor/IDE
+.vscode/
+.idea/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temp
