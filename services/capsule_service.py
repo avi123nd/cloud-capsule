@@ -57,6 +57,7 @@ class CapsuleService:
             recipient_id: Required recipient user ID
             file_data: Optional file bytes
             filename: Optional filename (required if file_data provided)
+            recipient_email: Optional email of non-registered recipient
         """
         try:
             # Validate recipient is provided

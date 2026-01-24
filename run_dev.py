@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Development server startup script for Time Capsule Cloud
 
@@ -7,7 +8,12 @@ This script sets up the development environment and starts the Flask server.
 
 import os
 import sys
+import io
 from dotenv import load_dotenv
+
+# Fix UTF-8 encoding on Windows
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 def check_environment():
     """Check if all required environment variables are set (MongoDB stack)."""

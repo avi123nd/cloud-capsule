@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Upload, Calendar, FileText, X, ArrowLeft } from 'lucide-react'
@@ -47,6 +47,12 @@ const MinimalCreateCapsule = () => {
     if (e.target.files && e.target.files[0]) {
       setFile(e.target.files[0])
     }
+  }
+
+  const getTomorrowDate = () => {
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    return tomorrow.toISOString().slice(0, 16)
   }
 
   const handleSubmit = async (e) => {
@@ -139,12 +145,6 @@ const MinimalCreateCapsule = () => {
     } catch (e) {
       setRecipientOptions([])
     }
-  }
-
-  const getTomorrowDate = () => {
-    const tomorrow = new Date()
-    tomorrow.setDate(tomorrow.getDate() + 1)
-    return tomorrow.toISOString().slice(0, 16)
   }
 
   return (
@@ -302,7 +302,7 @@ const MinimalCreateCapsule = () => {
             <div>
               <label className="block text-sm font-medium text-neutral-700 mb-3 flex items-center space-x-2">
                 <Calendar className="w-4 h-4" />
-                <span>Unlock Date</span>
+                <span>Unlock Date <span className="text-red-500">*</span></span>
               </label>
               <input
                 type="datetime-local"
