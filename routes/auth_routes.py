@@ -9,6 +9,8 @@ from bson import ObjectId
 from services.auth_service import AuthService, require_auth
 from services.email_service import EmailService
 from utils.validators import validate_email, validate_password, validate_display_name
+import jwt
+from datetime import datetime, timedelta
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -206,42 +208,33 @@ def refresh_token():
 
 @auth_bp.route('/auth/forgot-password', methods=['POST'])
 def forgot_password():
-    """Request password reset. Sends email with reset link."""
+    """Request password reset (OTP). Sends a 6-digit code to the user's email if it exists."""
     try:
         data = request.get_json() or {}
         email = data.get('email')
-        
         if not email:
             return jsonify({'error': 'Email is required'}), 400
-        
+
         # Validate email format
         email_valid, email_error = validate_email(email)
         if not email_valid:
             return jsonify({'error': email_error}), 400
-        
-        # Request password reset (always returns True for security)
-        _auth_service.request_password_reset(email)
-        
-        # Get user to send email (if exists)
+
+        # Generate OTP and store hashed value in user doc (returns the plain OTP)
+        otp = _auth_service.request_password_reset_otp(email)
+
+        # If user exists, send OTP via email
         user_doc = _db.get_collection('users').find_one({'email': email.lower()})
-        if user_doc:
-            # Get reset token from user document
-            reset_token = user_doc.get('password_reset_token')
-            if reset_token:
-                # Send reset email
-                try:
-                    _email_service.send_password_reset_email(
-                        recipient_email=user_doc['email'],
-                        recipient_name=user_doc.get('display_name'),
-                        reset_token=reset_token
-                    )
-                except Exception:
-                    # Email failure shouldn't break the flow
-                    pass
-        
+        if user_doc and otp:
+            try:
+                _email_service.send_password_reset_otp(user_doc['email'], user_doc.get('display_name'), otp)
+            except Exception:
+                # Don't fail the flow if email sending fails
+                pass
+
         # Always return success (don't reveal if email exists)
         return jsonify({
-            'message': 'If an account exists with this email, a password reset link has been sent.'
+            'message': 'If an account exists with this email, a password reset code has been sent.'
         }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -265,5 +258,134 @@ def reset_password():
         
         _auth_service.reset_password(reset_token, new_password)
         return jsonify({'message': 'Password reset successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+
+@auth_bp.route('/auth/forgot-password-otp', methods=['POST'])
+def forgot_password_otp():
+    """Request an OTP for password reset. Sends code to user's email if exists."""
+    try:
+        data = request.get_json() or {}
+        email = data.get('email')
+        if not email:
+            return jsonify({'error': 'Email is required'}), 400
+        email_valid, email_error = validate_email(email)
+        if not email_valid:
+            return jsonify({'error': email_error}), 400
+
+        # Generate OTP and store hashed OTP in DB
+        otp = _auth_service.request_password_reset_otp(email)
+        # If user exists, generate reset token and send OTP + link
+        user_doc = _db.get_collection('users').find_one({'email': email.lower()})
+        if user_doc and otp:
+            try:
+                reset_token = jwt.encode(
+                    {
+                        'uid': str(user_doc['_id']),
+                        'email': user_doc['email'],
+                        'type': 'password_reset',
+                        'exp': datetime.utcnow() + timedelta(minutes=60)
+                    },
+                    os.getenv('JWT_SECRET', 'dev-jwt-secret'),
+                    algorithm='HS256'
+                )
+                # store reset token as well for compatibility
+                _db.get_collection('users').update_one({'_id': user_doc['_id']}, {'$set': {'password_reset_token': reset_token, 'password_reset_expires': datetime.utcnow() + timedelta(hours=1)}})
+                _email_service.send_password_reset_combined(user_doc['email'], user_doc.get('display_name'), reset_token, otp)
+            except Exception:
+                pass
+
+        # Always return success
+        return jsonify({'message': 'If an account exists for this email, a reset code was sent.'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@auth_bp.route('/auth/reset-password-otp', methods=['POST'])
+def reset_password_otp():
+    """Reset password using an OTP code."""
+    try:
+        data = request.get_json() or {}
+        email = data.get('email')
+        otp = data.get('otp')
+        new_password = data.get('new_password')
+
+        if not email or not otp or not new_password:
+            return jsonify({'error': 'Email, OTP, and new password are required'}), 400
+
+        # Validate password strength
+        password_valid, password_error = validate_password(new_password)
+        if not password_valid:
+            return jsonify({'error': password_error}), 400
+
+        # Attempt reset
+        _auth_service.reset_password_with_otp(email, otp, new_password)
+        return jsonify({'message': 'Password reset successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+
+@auth_bp.route('/auth/validate-reset-token', methods=['GET'])
+def validate_reset_token():
+    """Debug helper: validate a password reset JWT against stored token and expiry.
+    Returns detailed information useful during development.
+    """
+    try:
+        token = request.args.get('token')
+        if not token:
+            return jsonify({'error': 'Missing token parameter'}), 400
+
+        try:
+            decoded = jwt.decode(token, os.getenv('JWT_SECRET', 'dev-jwt-secret'), algorithms=['HS256'])
+        except jwt.ExpiredSignatureError:
+            return jsonify({'valid': False, 'error': 'Token has expired'}), 400
+        except Exception as e:
+            return jsonify({'valid': False, 'error': f'Invalid token: {str(e)}'}), 400
+
+        if decoded.get('type') != 'password_reset':
+            return jsonify({'valid': False, 'error': 'Token is not a password reset token'}), 400
+
+        uid = decoded.get('uid')
+        user_doc = _db.get_collection('users').find_one({'_id': ObjectId(uid)})
+        if not user_doc:
+            return jsonify({'valid': False, 'error': 'User not found for token UID'}), 400
+
+        stored = user_doc.get('password_reset_token')
+        expires = user_doc.get('password_reset_expires')
+        stored_matches = stored == token
+        expired_flag = bool(expires and expires < datetime.utcnow())
+
+        return jsonify({
+            'valid': stored_matches and not expired_flag,
+            'stored_matches': stored_matches,
+            'stored_present': bool(stored),
+            'expired': expired_flag,
+            'decoded': {
+                'uid': decoded.get('uid'),
+                'email': decoded.get('email'),
+                'exp': decoded.get('exp')
+            }
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@auth_bp.route('/auth/verify-otp', methods=['POST'])
+def verify_otp():
+    """Verify an OTP code for a given email. Returns success if OTP is valid."""
+    try:
+        data = request.get_json() or {}
+        email = data.get('email')
+        otp = data.get('otp')
+        if not email or not otp:
+            return jsonify({'error': 'Email and OTP are required'}), 400
+        # Validate format
+        email_valid, email_error = validate_email(email)
+        if not email_valid:
+            return jsonify({'error': email_error}), 400
+        # Delegate to auth service
+        _auth_service.verify_password_reset_otp(email, otp)
+        return jsonify({'message': 'OTP verified'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 400

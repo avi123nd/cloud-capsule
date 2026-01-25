@@ -188,3 +188,37 @@ class EmailService:
             "Time Capsule Cloud"
         )
         self._send(recipient_email, subject, body)
+
+    def send_password_reset_otp(self, recipient_email: str, recipient_name: str | None, otp: str, expiry_minutes: int = 10):
+        """Send a short OTP code for password reset."""
+        display_recipient = recipient_name or "there"
+        subject = "Your Time Capsule Cloud password reset code"
+        body = (
+            f"Hi {display_recipient},\n\n"
+            "You requested to reset your password for Time Capsule Cloud.\n\n"
+            f"Use the following 6-digit code to reset your password: {otp}\n\n"
+            f"This code will expire in {expiry_minutes} minutes.\n\n"
+            "If you didn't request this, please ignore this email.\n\n"
+            "Best regards,\n"
+            "Time Capsule Cloud"
+        )
+        self._send(recipient_email, subject, body)
+
+    def send_password_reset_combined(self, recipient_email: str, recipient_name: str | None, reset_token: str, otp: str, expiry_minutes: int = 10):
+        """Send a password reset email that contains a reset link (token).
+        Kept signature compatible but no longer includes the OTP in the email body.
+        """
+        display_recipient = recipient_name or "there"
+        frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:3000')
+        reset_url = f"{frontend_url}/reset-password?token={reset_token}"
+        subject = "Password Reset Request"
+        body = (
+            f"Hi {display_recipient},\n\n"
+            "You requested to reset your password for Time Capsule Cloud.\n\n"
+            f"Click the link below to reset your password:\n{reset_url}\n\n"
+            f"This link will expire in {expiry_minutes} minutes.\n\n"
+            "If you didn't request this, please ignore this email.\n\n"
+            "Best regards,\n"
+            "Time Capsule Cloud"
+        )
+        self._send(recipient_email, subject, body)

@@ -9,6 +9,7 @@ import CapsuleDetail from './pages/CapsuleDetail'
 import UpdateCapsule from './pages/UpdateCapsule'
 import PrivateRoute from './components/PrivateRoute'
 import './App.css'
+import ResetPassword from './pages/ResetPassword'
 
 function App() {
   return (
@@ -75,6 +76,7 @@ function App() {
                 </PrivateRoute>
               }
             />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>
