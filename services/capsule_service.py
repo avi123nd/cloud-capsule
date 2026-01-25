@@ -335,33 +335,32 @@ class CapsuleService:
             if filename and not self._allowed_file(filename):
                 raise ValueError(f"File type not allowed: {filename}")
             
-            # Delete old GridFS file
+            # Encrypt new file first and store it before deleting the old one
+            encrypted_result = self.encryption_service.encrypt_data(file_data)
+            encrypted_b64 = encrypted_result['encrypted_data']
+            iv = encrypted_result['iv']
+            encrypted_bytes = base64.b64decode(encrypted_b64)
+            
+            # Determine file type correctly using the filename
+            if filename:
+                capsule_type = self._get_file_type(filename)
+            else:
+                capsule_type = doc.get('capsule_type', 'other')
+            
+            # Store new encrypted file in GridFS
+            new_grid_id = self.fs.put(encrypted_bytes, filename=filename or doc.get('filename', 'capsule'))
+            
+            # Delete old GridFS file (best-effort) after new file is safely stored
             old_grid_id = doc['gridfs_id']
             if isinstance(old_grid_id, str):
                 old_grid_id = ObjectId(old_grid_id)
             try:
                 self.fs.delete(old_grid_id)
             except Exception:
-                pass  # File might already be deleted
+                pass  # File might already be deleted or deletion failed
             
-            # Encrypt new file
-            encrypted_result = self.encryption_service.encrypt_data(file_data)
-            encrypted_b64 = encrypted_result['encrypted_data']
-            iv = encrypted_result['iv']
-            encrypted_bytes = base64.b64decode(encrypted_b64)
-            
-            # Determine file type
-            if filename:
-                extension = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
-                capsule_type = self._get_file_type(extension)
-            else:
-                capsule_type = doc.get('capsule_type', 'other')
-            
-            # Store new encrypted file in GridFS
-            grid_id = self.fs.put(encrypted_bytes, filename=filename or doc.get('filename', 'capsule'))
-            
-            # Update metadata
-            update_data['gridfs_id'] = grid_id
+            # Update metadata with the new file info
+            update_data['gridfs_id'] = new_grid_id
             update_data['encryption_iv'] = iv
             update_data['original_size'] = len(file_data)
             if filename:
