@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useState, useEffect, useRef } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Lock, Unlock, Calendar, Download, Edit, Trash2, Clock } from 'lucide-react'
+import { ArrowLeft, Lock, Unlock, Download, Edit, Trash2, Save, X, Upload } from 'lucide-react'
 import { format, differenceInDays, differenceInHours } from 'date-fns'
 import Navbar from '../components/Navbar'
 import { capsuleAPI } from '../services/api'
@@ -12,20 +12,79 @@ const CapsuleDetail = () => {
   const { id } = useParams()
   const navigate = useNavigate()
   const { user } = useAuth()
+  const fileInputRef = useRef(null)
   const [capsule, setCapsule] = useState(null)
   const [loading, setLoading] = useState(true)
   const [unlocking, setUnlocking] = useState(false)
   const [fileUrl, setFileUrl] = useState(null)
+  const [isEditMode, setIsEditMode] = useState(false)
+  const [editDescription, setEditDescription] = useState('')
+  const [editFile, setEditFile] = useState(null)
+  const [editFilePreview, setEditFilePreview] = useState(null)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     loadCapsule()
-    // Cleanup blob URL on unmount
     return () => {
-      if (fileUrl) {
-        URL.revokeObjectURL(fileUrl)
-      }
+      if (fileUrl) URL.revokeObjectURL(fileUrl)
     }
   }, [id])
+
+  const enterEditMode = () => {
+    setEditDescription(capsule?.description ?? '')
+    setEditFile(null)
+    setEditFilePreview(null)
+    setIsEditMode(true)
+  }
+
+  const cancelEdit = () => {
+    setEditDescription(capsule?.description ?? '')
+    setEditFile(null)
+    setEditFilePreview(null)
+    setIsEditMode(false)
+  }
+
+  const handleFileChange = (e) => {
+    const f = e.target.files?.[0]
+    if (!f) return
+    setEditFile(f)
+    if (f.type.startsWith('image/')) {
+      const r = new FileReader()
+      r.onload = (ev) => setEditFilePreview(ev.target.result)
+      r.readAsDataURL(f)
+    } else {
+      setEditFilePreview(null)
+    }
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const removeEditFile = () => {
+    setEditFile(null)
+    setEditFilePreview(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const formData = new FormData()
+      formData.append('description', editDescription.trim())
+      if (editFile) formData.append('file', editFile)
+      await capsuleAPI.update(id, formData)
+      toast.success('Capsule updated')
+      setIsEditMode(false)
+      setEditFile(null)
+      setEditFilePreview(null)
+      await loadCapsule({
+        forceRefreshPreview: true,
+        fileUrlToRevoke: fileUrl || null,
+      })
+    } catch (err) {
+      toast.error(err.response?.data?.error ?? 'Failed to update capsule')
+    } finally {
+      setSaving(false)
+    }
+  }
   
   // Helper function to create blob URL from base64 data
   const createBlobUrlFromBase64 = (base64Data, filename) => {
@@ -54,39 +113,42 @@ const CapsuleDetail = () => {
     return URL.createObjectURL(blob)
   }
 
-  // Note: File preview loading is now handled in loadCapsule() to support locked capsule preview for senders
-
-  const loadCapsule = async () => {
+  const loadCapsule = async (opts = {}) => {
+    const { forceRefreshPreview = false, fileUrlToRevoke = null } = opts
     try {
       const response = await capsuleAPI.getMetadata(id)
       const capsuleData = response.data
       setCapsule(capsuleData)
-      
-      // Load file preview if it's an image/video/audio
-      // Allow sender to view locked capsules for editing, or show if unlocked
-      if (capsuleData.capsule_type !== 'text' && !fileUrl) {
-        const isSender = user && (capsuleData.user_id === user.uid || capsuleData.sender_id === user.uid)
-        
-        if (isSender || capsuleData.is_unlocked) {
-          try {
-            // Try preview endpoint first (works for locked capsules if sender)
-            const previewResponse = await capsuleAPI.preview(id)
-            if (previewResponse.data.data) {
-              const url = createBlobUrlFromBase64(previewResponse.data.data, capsuleData.filename)
-              setFileUrl(url)
-            }
-          } catch (previewError) {
-            // If preview fails and capsule is unlocked, try unlock endpoint
-            if (capsuleData.is_unlocked) {
-              try {
-                const unlockResponse = await capsuleAPI.unlock(id)
-                if (unlockResponse.data.data) {
-                  const url = createBlobUrlFromBase64(unlockResponse.data.data, capsuleData.filename)
-                  setFileUrl(url)
-                }
-              } catch (unlockError) {
-                console.error('Failed to load file:', unlockError)
+
+      const shouldLoadPreview =
+        capsuleData.capsule_type !== 'text' &&
+        (forceRefreshPreview || !fileUrl)
+      const isSender = user && (capsuleData.user_id === user.uid || capsuleData.sender_id === user.uid)
+      const canPreview = isSender || capsuleData.is_unlocked
+
+      if (forceRefreshPreview && fileUrlToRevoke) {
+        try {
+          URL.revokeObjectURL(fileUrlToRevoke)
+        } catch (_) {}
+      }
+
+      if (shouldLoadPreview && canPreview) {
+        try {
+          const previewResponse = await capsuleAPI.preview(id)
+          if (previewResponse.data?.data) {
+            const url = createBlobUrlFromBase64(previewResponse.data.data, capsuleData.filename)
+            setFileUrl(url)
+          }
+        } catch (previewError) {
+          if (capsuleData.is_unlocked) {
+            try {
+              const unlockResponse = await capsuleAPI.unlock(id)
+              if (unlockResponse.data?.data) {
+                const url = createBlobUrlFromBase64(unlockResponse.data.data, capsuleData.filename)
+                setFileUrl(url)
               }
+            } catch (unlockError) {
+              console.error('Failed to load file:', unlockError)
             }
           }
         }
@@ -199,7 +261,41 @@ const CapsuleDetail = () => {
             </div>
           </div>
 
-          {/* Info */}
+          {/* Preview — always visible, including in Edit Mode */}
+          <div className="mb-6 pb-6 border-b border-neutral-200">
+            <p className="text-sm font-medium text-neutral-600 mb-3">Preview</p>
+            {fileUrl && capsule.capsule_type === 'image' && (
+              <img
+                src={fileUrl}
+                alt={capsule.filename}
+                className="w-full h-auto max-h-64 object-contain rounded-lg bg-neutral-100"
+                onError={() => toast.error('Failed to display image')}
+              />
+            )}
+            {fileUrl && capsule.capsule_type === 'video' && (
+              <video
+                src={fileUrl}
+                controls
+                className="w-full h-auto max-h-64 bg-neutral-100 rounded-lg"
+                onError={() => toast.error('Failed to display video')}
+              />
+            )}
+            {fileUrl && capsule.capsule_type === 'audio' && (
+              <audio src={fileUrl} controls className="w-full" />
+            )}
+            {capsule.capsule_type === 'text' && (
+              <div className="rounded-lg bg-neutral-100 p-4 text-neutral-900 whitespace-pre-wrap">
+                {capsule.description || '(No message)'}
+              </div>
+            )}
+            {capsule.capsule_type !== 'text' && !fileUrl && (
+              <div className="rounded-lg bg-neutral-100 p-4 text-neutral-600">
+                File: {capsule.filename}
+              </div>
+            )}
+          </div>
+
+          {/* Read-only: Unlock Date, Created, Time Remaining */}
           <div className="space-y-4 mb-6 pb-6 border-b border-neutral-200">
             <div>
               <p className="text-sm text-neutral-600 mb-1">Unlock Date</p>
@@ -209,73 +305,121 @@ const CapsuleDetail = () => {
               <p className="text-sm text-neutral-600 mb-1">Created</p>
               <p className="text-neutral-900">{format(new Date(capsule.created_at), 'MMM dd, yyyy')}</p>
             </div>
-            {capsule.description && (
+            {!isUnlocked && (
               <div>
-                <p className="text-sm text-neutral-600 mb-1">Description</p>
-                <p className="text-neutral-900">{capsule.description}</p>
+                <p className="text-sm text-neutral-600 mb-1">Time Remaining</p>
+                <p className="text-lg font-semibold text-neutral-900">
+                  {now < unlockDate
+                    ? `${daysUntil > 0 ? `${daysUntil} days` : `${hoursUntil} hours`}`
+                    : 'Ready to unlock!'}
+                </p>
               </div>
             )}
           </div>
 
-          {/* Preview */}
-          {fileUrl && (
-            <div className="mb-6 pb-6 border-b border-neutral-200">
-              <p className="text-sm font-medium text-neutral-600 mb-3">Preview</p>
-              {capsule.capsule_type === 'image' && (
-                <img
-                  src={fileUrl}
-                  alt={capsule.filename}
-                  className="w-full h-auto max-h-64 object-contain rounded-lg bg-neutral-100"
-                  onError={() => toast.error('Failed to display image')}
-                />
-              )}
-              {capsule.capsule_type === 'video' && (
-                <video
-                  src={fileUrl}
-                  controls
-                  className="w-full h-auto max-h-64 bg-neutral-100 rounded-lg"
-                  onError={() => toast.error('Failed to display video')}
-                />
-              )}
-              {capsule.capsule_type === 'audio' && (
-                <audio src={fileUrl} controls className="w-full" />
-              )}
-            </div>
-          )}
+          {/* Message / Description — editable only in Edit Mode */}
+          <div className="mb-6 pb-6 border-b border-neutral-200">
+            <p className="text-sm text-neutral-600 mb-1">Message / Description</p>
+            {isEditMode ? (
+              <textarea
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                placeholder="Write a message or description..."
+                rows={4}
+                className="luxury-input w-full resize-none"
+              />
+            ) : (
+              <p className="text-neutral-900 whitespace-pre-wrap">{capsule.description || '—'}</p>
+            )}
+          </div>
 
-          {/* Time Remaining */}
-          {!isUnlocked && (
+          {/* Replace file — only in Edit Mode, only for file capsules */}
+          {isEditMode && capsule.capsule_type !== 'text' && (
             <div className="mb-6 pb-6 border-b border-neutral-200">
-              <p className="text-sm text-neutral-600 mb-2">Time Remaining</p>
-              <p className="text-lg font-semibold text-neutral-900">
-                {now < unlockDate
-                  ? `${daysUntil > 0 ? `${daysUntil} days` : `${hoursUntil} hours`}`
-                  : 'Ready to unlock!'}
-              </p>
+              <p className="text-sm text-neutral-600 mb-2">Replace uploaded file</p>
+              {editFile ? (
+                <div className="flex items-center justify-between gap-3 p-4 bg-neutral-50 rounded-xl border border-neutral-200">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-neutral-900 truncate">{editFile.name}</p>
+                    <p className="text-xs text-neutral-500">
+                      {(editFile.size / 1024).toFixed(1)} KB
+                    </p>
+                  </div>
+                  {editFilePreview && (
+                    <img
+                      src={editFilePreview}
+                      alt="New file preview"
+                      className="w-16 h-16 object-cover rounded-lg flex-shrink-0"
+                    />
+                  )}
+                  <button
+                    type="button"
+                    onClick={removeEditFile}
+                    className="p-2 hover:bg-neutral-200 rounded-lg transition-colors text-neutral-600"
+                    aria-label="Remove new file"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              ) : (
+                <label className="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed border-neutral-300 rounded-xl cursor-pointer hover:border-neutral-400 transition-colors bg-neutral-50">
+                  <Upload className="w-6 h-6 mb-1 text-neutral-400" />
+                  <span className="text-sm text-neutral-600">Choose file to replace</span>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    onChange={handleFileChange}
+                    accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt"
+                  />
+                </label>
+              )}
+              <p className="mt-1 text-xs text-neutral-500">Leave empty to keep the current file</p>
             </div>
           )}
 
           {/* Actions */}
           <div className="flex gap-3">
-            {isUnlocked && (
-              <button
-                onClick={handleDownload}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
-              >
-                <Download className="w-4 h-4" />
-                Download
-              </button>
+            {isEditMode ? (
+              <>
+                <button
+                  onClick={cancelEdit}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-white border border-neutral-300 text-neutral-700 rounded-lg font-medium hover:bg-neutral-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Save className="w-4 h-4" />
+                  {saving ? 'Saving...' : 'Save'}
+                </button>
+              </>
+            ) : (
+              <>
+                {isUnlocked && (
+                  <button
+                    onClick={handleDownload}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download
+                  </button>
+                )}
+                {!isUnlocked && (
+                  <button
+                    onClick={enterEditMode}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors"
+                  >
+                    <Edit className="w-4 h-4" />
+                    Edit
+                  </button>
+                )}
+              </>
             )}
-            {!isUnlocked && (
-              <button
-                onClick={() => navigate(`/capsule/${id}/update`)}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors"
-              >
-                <Edit className="w-4 h-4" />
-                Edit
-              </button>
-            )}
-            {canUnlock && (
+            {!isEditMode && canUnlock && (
               <button
                 onClick={handleUnlock}
                 disabled={unlocking}

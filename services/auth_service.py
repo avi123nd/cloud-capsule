@@ -179,6 +179,87 @@ class AuthService:
         
         return True
 
+    def request_password_reset_otp(self, email: str, expiry_minutes: int = 10) -> bool:
+        """Generate a numeric OTP, store its bcrypt hash and expiry on the user doc.
+        Returns True even if the user does not exist (avoid user enumeration).
+        """
+        user = self.users.find_one({'email': email.lower()})
+        if not user:
+            return True
+
+        # Generate a 6-digit OTP using a secure RNG
+        import secrets
+        otp = f"{secrets.randbelow(10**6):06d}"
+
+        # Hash OTP with bcrypt for storage
+        otp_hashed = bcrypt.hashpw(otp.encode('utf-8'), bcrypt.gensalt())
+
+        expires_at = datetime.utcnow() + timedelta(minutes=expiry_minutes)
+
+        # Store hashed OTP and expiry
+        self.users.update_one(
+            {'_id': user['_id']},
+            {'$set': {
+                'password_reset_otp': otp_hashed,
+                'password_reset_otp_expires': expires_at,
+                'updated_at': datetime.utcnow()
+            }}
+        )
+
+        # Return the plain OTP for the caller so the route can send it via email
+        # (Do NOT return it in responses; only pass to email sending code.)
+        return otp
+
+    def verify_password_reset_otp(self, email: str, otp: str) -> bool:
+        """Verify a provided OTP for the given email. Raises Exception on failure."""
+        user = self.users.find_one({'email': email.lower()})
+        if not user:
+            raise Exception('Invalid OTP or email')
+
+        stored_hash = user.get('password_reset_otp')
+        expires = user.get('password_reset_otp_expires')
+        if not stored_hash or not expires:
+            raise Exception('No OTP requested')
+        if expires < datetime.utcnow():
+            raise Exception('OTP has expired')
+
+        # bcrypt stores bytes; ensure stored_hash is bytes
+        try:
+            hashed_bytes = stored_hash if isinstance(stored_hash, (bytes, bytearray)) else stored_hash.encode('utf-8')
+        except Exception:
+            hashed_bytes = stored_hash
+
+        if not bcrypt.checkpw(otp.encode('utf-8'), hashed_bytes):
+            raise Exception('Invalid OTP')
+
+        return True
+
+    def reset_password_with_otp(self, email: str, otp: str, new_password: str) -> bool:
+        """Validate OTP and reset the user's password. Clears OTP fields on success."""
+        # Verify OTP first
+        self.verify_password_reset_otp(email, otp)
+
+        user = self.users.find_one({'email': email.lower()})
+        if not user:
+            raise Exception('User not found')
+
+        # Hash new password and update user
+        new_hashed = self.hash_password(new_password)
+        result = self.users.update_one(
+            {'_id': user['_id']},
+            {'$set': {
+                'password': new_hashed,
+                'password_reset_otp': None,
+                'password_reset_otp_expires': None,
+                'updated_at': datetime.utcnow()
+            }}
+        )
+
+        if result.modified_count == 0:
+            raise Exception('Failed to update password')
+
+        return True
+
     def reset_password(self, reset_token: str, new_password: str) -> bool:
         """Reset password using a valid reset token."""
         try:

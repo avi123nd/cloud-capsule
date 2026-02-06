@@ -48,8 +48,9 @@ const MinimalLogin = () => {
 
     setResetLoading(true)
     try {
-      await authAPI.forgotPassword({ email: resetEmail })
-      toast.success('Password reset link sent. Please check your email.')
+      // Use OTP+link endpoint so email includes both code and reset link
+      await authAPI.forgotPasswordOtp({ email: resetEmail })
+      toast.success('Password reset code and link sent. Please check your email.')
       setShowForgotPassword(false)
       setResetEmail('')
     } catch (error) {

@@ -25,7 +25,7 @@ const UpdateCapsule = () => {
     try {
       const response = await capsuleAPI.getById(id)
       const capsuleData = response.data
-      setCapsule(capzsuleData)
+      setCapsule(capsuleData)
       setDescription(capsuleData.description || '')
       // Format unlock_date for datetime-local input
       if (capsuleData.unlock_date) {
