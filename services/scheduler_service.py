@@ -9,6 +9,7 @@ import logging
 from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from bson import ObjectId
 
 from services.email_service import EmailService
 
@@ -103,7 +104,14 @@ class SchedulerService:
                                 recipient_email = doc['recipient_email']
                             elif recipient_user_id:
                                 # Registered user: look up their email + display name
-                                recipient_doc = users.find_one({'_id': recipient_user_id})
+                                if isinstance(recipient_user_id, str):
+                                    try:
+                                        recipient_obj_id = ObjectId(recipient_user_id)
+                                        recipient_doc = users.find_one({'_id': recipient_obj_id})
+                                    except Exception:
+                                        recipient_doc = None
+                                else:
+                                    recipient_doc = users.find_one({'_id': recipient_user_id})
                                 if recipient_doc:
                                     recipient_email = recipient_doc.get('email')
                                     recipient_name = recipient_doc.get('display_name')
@@ -111,7 +119,14 @@ class SchedulerService:
                             # Determine sender name if possible
                             sender_id = doc.get('sender_id') or doc.get('user_id')
                             if sender_id:
-                                sender_doc = users.find_one({'_id': sender_id})
+                                if isinstance(sender_id, str):
+                                    try:
+                                        sender_obj_id = ObjectId(sender_id)
+                                        sender_doc = users.find_one({'_id': sender_obj_id})
+                                    except Exception:
+                                        sender_doc = None
+                                else:
+                                    sender_doc = users.find_one({'_id': sender_id})
                                 if sender_doc:
                                     sender_name = sender_doc.get('display_name')
 

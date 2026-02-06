@@ -1,5 +1,8 @@
 """
-Capsule Service using MongoDB and GridFS
+Capsule Service using MongoDB for metadata and Cloudinary for file storage.
+
+This service manages time capsules with encrypted files stored in Cloudinary
+and metadata stored in MongoDB.
 """
 
 import os
@@ -7,20 +10,36 @@ import uuid
 import base64
 from datetime import datetime
 from bson import ObjectId
-from gridfs import GridFS
 from werkzeug.utils import secure_filename
+
+# Import Cloudinary storage service
+from services.cloudinary_service import CloudinaryStorageService
 
 
 class CapsuleService:
-    """Service for managing time capsules in MongoDB."""
-
+    """Service for managing time capsules with Cloudinary storage."""
+    
     def __init__(self, db, encryption_service):
         self.db = db
-        self.fs = GridFS(db)
         self.encryption_service = encryption_service
         self.capsules = db.get_collection('capsules')
-        self.allowed_extensions = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'mp4', 'avi', 'mov', 'mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'}
-
+        self.allowed_extensions = {
+            'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 
+            'mp4', 'avi', 'mov', 'mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'
+        }
+        
+        # Initialize Cloudinary storage
+        try:
+            self.cloudinary_storage = CloudinaryStorageService()
+        except ValueError as e:
+            # If Cloudinary is not configured, fall back to None
+            # and GridFS will be used if available
+            self.cloudinary_storage = None
+            print(f"Warning: Cloudinary not configured: {e}")
+            # Fall back to GridFS
+            from gridfs import GridFS
+            self.fs = GridFS(db)
+    
     def _allowed_file(self, filename):
         return '.' in filename and filename.rsplit('.', 1)[1].lower() in self.allowed_extensions
 
@@ -35,6 +54,63 @@ class CapsuleService:
         if extension in {'mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'}:
             return 'audio'
         return 'other'
+    
+    def _store_file(self, encrypted_bytes: bytes, capsule_id: str, content_type: str = 'application/octet-stream') -> dict:
+        """Store encrypted file - uses Cloudinary if available, falls back to GridFS."""
+        if self.cloudinary_storage:
+            return self.cloudinary_storage.upload_encrypted_file(
+                encrypted_bytes, capsule_id, content_type
+            )
+        else:
+            # Fall back to GridFS
+            grid_id = self.fs.put(
+                encrypted_bytes, 
+                filename=f"{capsule_id}.enc", 
+                content_type=content_type
+            )
+            return {
+                'storage_type': 'gridfs',
+                'gridfs_id': str(grid_id),
+                'public_id': f"gridfs_{capsule_id}"
+            }
+    
+    def _retrieve_file(self, storage_info: dict) -> bytes:
+        """Retrieve encrypted file based on storage type."""
+        storage_type = storage_info.get('storage_type', 'gridfs')
+        
+        if storage_type == 'cloudinary':
+            public_id = storage_info.get('public_id')
+            if public_id and self.cloudinary_storage:
+                return self.cloudinary_storage.get_encrypted_file(public_id)
+            else:
+                raise ValueError("Cloudinary storage not available")
+        else:
+            # GridFS fallback
+            grid_id = storage_info.get('gridfs_id')
+            if isinstance(grid_id, str):
+                grid_id = ObjectId(grid_id)
+            data_bytes = self.fs.get(grid_id).read()
+            return data_bytes
+    
+    def _delete_file(self, storage_info: dict) -> bool:
+        """Delete file based on storage type."""
+        storage_type = storage_info.get('storage_type', 'gridfs')
+        
+        if storage_type == 'cloudinary':
+            public_id = storage_info.get('public_id')
+            if public_id and self.cloudinary_storage:
+                return self.cloudinary_storage.delete_file(public_id)
+            return False
+        else:
+            # GridFS fallback
+            grid_id = storage_info.get('gridfs_id')
+            if isinstance(grid_id, str):
+                grid_id = ObjectId(grid_id)
+            try:
+                self.fs.delete(grid_id)
+                return True
+            except Exception:
+                return False
 
     def create_capsule(
         self,
@@ -83,9 +159,9 @@ class CapsuleService:
                 encrypted_b64 = encrypted_result['encrypted_data']
                 iv = encrypted_result['iv']
                 
-                # Store encrypted bytes in GridFS
+                # Store encrypted bytes in Cloudinary (or GridFS fallback)
                 encrypted_bytes = base64.b64decode(encrypted_b64)
-                grid_id = self.fs.put(encrypted_bytes, filename=f"{capsule_id}.enc", content_type='application/octet-stream')
+                storage_info = self._store_file(encrypted_bytes, capsule_id, 'application/octet-stream')
             
             # Handle description-only capsule
             else:
@@ -99,28 +175,30 @@ class CapsuleService:
                 encrypted_b64 = encrypted_result['encrypted_data']
                 iv = encrypted_result['iv']
                 
-                # Store encrypted description in GridFS
+                # Store encrypted description in Cloudinary (or GridFS fallback)
                 encrypted_bytes = base64.b64decode(encrypted_b64)
-                grid_id = self.fs.put(encrypted_bytes, filename=f"{capsule_id}.enc", content_type='text/plain')
-                filename = 'description.txt'  # Default filename for text-only capsules
+                storage_info = self._store_file(encrypted_bytes, capsule_id, 'text/plain')
+                filename = 'description.txt'
                 original_size = len(description_bytes)
 
-            # Persist metadata
+            # Persist metadata with storage info
+            storage_type = storage_info.get('storage_type', 'gridfs')
             doc = {
                 'capsule_id': capsule_id,
-                # For backward compatibility, keep user_id as sender
                 'user_id': user_id,
                 'sender_id': user_id,
                 'recipient_id': recipient_id,
-                # Store the email we will notify, even if the recipient is not yet a user
                 'recipient_email': recipient_email,
                 'filename': filename,
                 'capsule_type': capsule_type,
                 'unlock_date': unlock_date,
-                'gridfs_id': grid_id,
+                'storage_type': storage_type,
+                'cloudinary_public_id': storage_info.get('public_id') if storage_type == 'cloudinary' else None,
+                'cloudinary_url': storage_info.get('secure_url') if storage_type == 'cloudinary' else None,
+                'gridfs_id': storage_info.get('gridfs_id') if storage_type == 'gridfs' else None,
                 'encryption_iv': iv,
                 'original_size': original_size,
-                'description': description,  # Store description in metadata for preview
+                'description': description,
                 'created_at': datetime.utcnow(),
                 'is_unlocked': False,
                 'unlocked_at': None
@@ -130,7 +208,8 @@ class CapsuleService:
             return {
                 'capsule_id': capsule_id,
                 'message': 'Capsule created successfully',
-                'unlock_date': unlock_date.isoformat()
+                'unlock_date': unlock_date.isoformat(),
+                'storage_type': storage_type
             }
         except Exception as e:
             raise Exception(f"Capsule creation failed: {str(e)}")
@@ -138,8 +217,8 @@ class CapsuleService:
     def get_user_capsules(self, user_id, include_locked=True):
         try:
             # Include both sent and received capsules
-            or_clause = [{ 'user_id': user_id }, { 'recipient_id': user_id }]
-            query = { '$or': or_clause }
+            or_clause = [{'user_id': user_id}, {'recipient_id': user_id}]
+            query = {'$or': or_clause}
             if not include_locked:
                 query['is_unlocked'] = True
             results = []
@@ -148,7 +227,6 @@ class CapsuleService:
                 item['capsule_id'] = item.get('capsule_id')
                 item['_id'] = str(item['_id'])
                 if item.get('recipient_id') is not None:
-                    # recipient_id can be None or string/ObjectId; normalize to str when present
                     try:
                         item['recipient_id'] = str(item['recipient_id']) if item['recipient_id'] is not None else None
                     except Exception:
@@ -159,7 +237,21 @@ class CapsuleService:
                     item['created_at'] = item['created_at'].isoformat()
                 if item.get('unlock_date'):
                     item['unlock_date'] = item['unlock_date'].isoformat()
-                item['gridfs_id'] = str(item['gridfs_id'])
+                
+                # Build storage info object
+                item['storage_info'] = {
+                    'type': item.get('storage_type', 'gridfs'),
+                    'public_id': item.get('cloudinary_public_id'),
+                    'url': item.get('cloudinary_url'),
+                    'gridfs_id': str(item.get('gridfs_id')) if item.get('gridfs_id') else None
+                }
+                
+                # Remove old fields
+                item.pop('cloudinary_public_id', None)
+                item.pop('cloudinary_url', None)
+                item.pop('gridfs_id', None)
+                item.pop('storage_type', None)
+                
                 results.append(item)
             return results
         except Exception as e:
@@ -171,7 +263,21 @@ class CapsuleService:
             raise ValueError('Capsule not found')
         item = dict(doc)
         item['_id'] = str(item['_id'])
-        item['gridfs_id'] = str(item['gridfs_id'])
+        
+        # Build storage info
+        item['storage_info'] = {
+            'type': item.get('storage_type', 'gridfs'),
+            'public_id': item.get('cloudinary_public_id'),
+            'url': item.get('cloudinary_url'),
+            'gridfs_id': str(item.get('gridfs_id')) if item.get('gridfs_id') else None
+        }
+        
+        # Remove old fields
+        item.pop('cloudinary_public_id', None)
+        item.pop('cloudinary_url', None)
+        item.pop('gridfs_id', None)
+        item.pop('storage_type', None)
+        
         if item.get('unlocked_at'):
             item['unlocked_at'] = item['unlocked_at'].isoformat()
         if item.get('created_at'):
@@ -185,12 +291,15 @@ class CapsuleService:
         if not doc:
             raise ValueError('Capsule not found')
         
-        # Read encrypted bytes from GridFS and convert to base64 string for decryptor
-        grid_id = doc['gridfs_id']
-        # Handle both ObjectId and string
-        if isinstance(grid_id, str):
-            grid_id = ObjectId(grid_id)
-        data_bytes = self.fs.get(grid_id).read()
+        # Build storage info to retrieve file
+        storage_info = {
+            'storage_type': doc.get('storage_type', 'gridfs'),
+            'public_id': doc.get('cloudinary_public_id'),
+            'gridfs_id': str(doc.get('gridfs_id')) if doc.get('gridfs_id') else None
+        }
+        
+        # Read encrypted bytes from appropriate storage
+        data_bytes = self._retrieve_file(storage_info)
         encrypted_b64 = base64.b64encode(data_bytes).decode('utf-8')
         decrypted = self.encryption_service.decrypt_data(encrypted_b64, doc['encryption_iv'])
 
@@ -230,17 +339,20 @@ class CapsuleService:
         # Check if locked and if user can view it
         if not doc.get('is_unlocked'):
             if allow_locked_for_owner and user_id:
-                # Only allow sender to view their own locked capsules
                 if doc.get('user_id') != user_id and doc.get('sender_id') != user_id:
                     raise ValueError('Capsule is not unlocked yet')
             else:
                 raise ValueError('Capsule is not unlocked yet')
         
-        # Read encrypted bytes from GridFS
-        grid_id = doc['gridfs_id']
-        if isinstance(grid_id, str):
-            grid_id = ObjectId(grid_id)
-        data_bytes = self.fs.get(grid_id).read()
+        # Build storage info
+        storage_info = {
+            'storage_type': doc.get('storage_type', 'gridfs'),
+            'public_id': doc.get('cloudinary_public_id'),
+            'gridfs_id': str(doc.get('gridfs_id')) if doc.get('gridfs_id') else None
+        }
+        
+        # Read encrypted bytes from appropriate storage
+        data_bytes = self._retrieve_file(storage_info)
         encrypted_b64 = base64.b64encode(data_bytes).decode('utf-8')
         
         # Decrypt
@@ -273,19 +385,11 @@ class CapsuleService:
     def get_file_preview_for_edit(self, capsule_id: str, user_id: str):
         """
         Get file data as base64 for preview when editing (allows sender to view locked capsules).
-        
-        Args:
-            capsule_id: Capsule ID
-            user_id: User ID (must be the sender)
-            
-        Returns:
-            dict with base64 data and metadata
         """
         doc = self.capsules.find_one({'capsule_id': capsule_id})
         if not doc:
             raise ValueError('Capsule not found')
         
-        # Only allow sender to view their own capsules
         if doc.get('user_id') != user_id and doc.get('sender_id') != user_id:
             raise ValueError('Capsule not found')
         
@@ -296,7 +400,6 @@ class CapsuleService:
             user_id=user_id
         )
         
-        # Convert to base64 for frontend
         if doc['capsule_type'] == 'text':
             data_base64 = file_data.decode('utf-8')
         else:
@@ -331,18 +434,16 @@ class CapsuleService:
         
         # Handle file replacement
         if file_data is not None:
-            # Validate file if filename provided
             if filename and not self._allowed_file(filename):
                 raise ValueError(f"File type not allowed: {filename}")
             
-            # Delete old GridFS file
-            old_grid_id = doc['gridfs_id']
-            if isinstance(old_grid_id, str):
-                old_grid_id = ObjectId(old_grid_id)
-            try:
-                self.fs.delete(old_grid_id)
-            except Exception:
-                pass  # File might already be deleted
+            # Delete old file from storage
+            old_storage_info = {
+                'storage_type': doc.get('storage_type', 'gridfs'),
+                'public_id': doc.get('cloudinary_public_id'),
+                'gridfs_id': str(doc.get('gridfs_id')) if doc.get('gridfs_id') else None
+            }
+            self._delete_file(old_storage_info)
             
             # Encrypt new file
             encrypted_result = self.encryption_service.encrypt_data(file_data)
@@ -357,11 +458,15 @@ class CapsuleService:
             else:
                 capsule_type = doc.get('capsule_type', 'other')
             
-            # Store new encrypted file in GridFS
-            grid_id = self.fs.put(encrypted_bytes, filename=filename or doc.get('filename', 'capsule'))
+            # Store new encrypted file in Cloudinary (or GridFS fallback)
+            storage_info = self._store_file(encrypted_bytes, capsule_id, filename or doc.get('filename', 'capsule'))
+            storage_type = storage_info.get('storage_type', 'gridfs')
             
             # Update metadata
-            update_data['gridfs_id'] = grid_id
+            update_data['cloudinary_public_id'] = storage_info.get('public_id') if storage_type == 'cloudinary' else None
+            update_data['cloudinary_url'] = storage_info.get('secure_url') if storage_type == 'cloudinary' else None
+            update_data['gridfs_id'] = storage_info.get('gridfs_id') if storage_type == 'gridfs' else None
+            update_data['storage_type'] = storage_type
             update_data['encryption_iv'] = iv
             update_data['original_size'] = len(file_data)
             if filename:
@@ -379,7 +484,7 @@ class CapsuleService:
         return self.get_capsule_metadata(capsule_id)
 
     def delete_capsule(self, capsule_id: str, user_id: str):
-        """Delete a capsule and its GridFS file."""
+        """Delete a capsule and its stored file."""
         doc = self.capsules.find_one({'capsule_id': capsule_id})
         if not doc:
             raise ValueError('Capsule not found')
@@ -387,14 +492,13 @@ class CapsuleService:
         if doc['user_id'] != user_id:
             raise ValueError('Capsule not found')
         
-        # Delete GridFS file
-        grid_id = doc['gridfs_id']
-        if isinstance(grid_id, str):
-            grid_id = ObjectId(grid_id)
-        try:
-            self.fs.delete(grid_id)
-        except Exception:
-            pass  # File may already be deleted
+        # Delete file from storage
+        storage_info = {
+            'storage_type': doc.get('storage_type', 'gridfs'),
+            'public_id': doc.get('cloudinary_public_id'),
+            'gridfs_id': str(doc.get('gridfs_id')) if doc.get('gridfs_id') else None
+        }
+        self._delete_file(storage_info)
         
         # Delete metadata
         result = self.capsules.delete_one({'capsule_id': capsule_id})
