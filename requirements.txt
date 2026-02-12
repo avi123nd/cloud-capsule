@@ -12,3 +12,4 @@ pytest==7.4.3
 pytest-mock==3.12.0
 cloudinary==1.41.0
 requests==2.31.0
+python-dotenv==1.0.0

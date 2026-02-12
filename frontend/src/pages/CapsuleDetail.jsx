@@ -125,16 +125,38 @@ const CapsuleDetail = () => {
   const handleDownload = async () => {
     try {
       const response = await capsuleAPI.download(id)
-      const blob = new Blob([response.data])
+      
+      // The response data is already a blob when responseType: 'blob' is set
+      let blob = response.data
+      
+      // If response.data is not a Blob, create one (fallback)
+      if (!(blob instanceof Blob)) {
+        const contentType = response.headers['content-type'] || 'application/octet-stream'
+        blob = new Blob([response.data], { type: contentType })
+      }
+      
+      // Create download link
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = capsule.filename
+      
+      // Extract filename from Content-Disposition header or use capsule filename
+      const contentDisposition = response.headers['content-disposition']
+      let filename = capsule.filename
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="?(.+?)"?(;|$)/)
+        if (filenameMatch && filenameMatch[1]) {
+          filename = filenameMatch[1]
+        }
+      }
+      
+      a.download = filename
       a.click()
       window.URL.revokeObjectURL(url)
       toast.success('Download started')
     } catch (error) {
-      toast.error('Failed to download')
+      console.error('Download error:', error)
+      toast.error('Failed to download file')
     }
   }
 
@@ -166,6 +188,7 @@ const CapsuleDetail = () => {
   const canUnlock = now >= unlockDate && !isUnlocked
   const daysUntil = differenceInDays(unlockDate, now)
   const hoursUntil = differenceInHours(unlockDate, now)
+  const isOwner = user && capsule.user_id === user.uid
 
   return (
     <div className="min-h-screen bg-neutral-50">
@@ -201,6 +224,29 @@ const CapsuleDetail = () => {
 
           {/* Info */}
           <div className="space-y-4 mb-6 pb-6 border-b border-neutral-200">
+            {!isOwner && capsule.sender_name && (
+              <div>
+                <p className="text-sm text-neutral-600 mb-1">From</p>
+                <p className="text-neutral-900 font-medium">{capsule.sender_name}</p>
+                {capsule.sender_email && (
+                  <p className="text-neutral-500 text-sm">{capsule.sender_email}</p>
+                )}
+              </div>
+            )}
+            {isOwner && (capsule.recipient_name || capsule.recipient_email || capsule.recipient_id) && (
+              <div>
+                <p className="text-sm text-neutral-600 mb-1">To</p>
+                {capsule.recipient_name && (
+                  <p className="text-neutral-900 font-medium">{capsule.recipient_name}</p>
+                )}
+                {capsule.recipient_display_email && (
+                  <p className="text-neutral-500 text-sm">{capsule.recipient_display_email}</p>
+                )}
+                {capsule.recipient_email && !capsule.recipient_display_email && (
+                  <p className="text-neutral-500 text-sm">{capsule.recipient_email}</p>
+                )}
+              </div>
+            )}
             <div>
               <p className="text-sm text-neutral-600 mb-1">Unlock Date</p>
               <p className="text-neutral-900">{format(unlockDate, 'MMM dd, yyyy HH:mm')}</p>
@@ -209,6 +255,12 @@ const CapsuleDetail = () => {
               <p className="text-sm text-neutral-600 mb-1">Created</p>
               <p className="text-neutral-900">{format(new Date(capsule.created_at), 'MMM dd, yyyy')}</p>
             </div>
+            {isOwner && capsule.is_unlocked && capsule.unlocked_at && (
+              <div>
+                <p className="text-sm text-neutral-600 mb-1">Opened by Recipient</p>
+                <p className="text-neutral-900 font-medium">{format(new Date(capsule.unlocked_at), 'MMM dd, yyyy HH:mm')}</p>
+              </div>
+            )}
             {capsule.description && (
               <div>
                 <p className="text-sm text-neutral-600 mb-1">Description</p>
@@ -266,7 +318,7 @@ const CapsuleDetail = () => {
                 Download
               </button>
             )}
-            {!isUnlocked && (
+            {!isUnlocked && isOwner && (
               <button
                 onClick={() => navigate(`/capsule/${id}/update`)}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors"
@@ -275,7 +327,7 @@ const CapsuleDetail = () => {
                 Edit
               </button>
             )}
-            {canUnlock && (
+            {canUnlock && !isOwner && (
               <button
                 onClick={handleUnlock}
                 disabled={unlocking}
@@ -284,12 +336,14 @@ const CapsuleDetail = () => {
                 {unlocking ? 'Unlocking...' : 'Unlock'}
               </button>
             )}
-            <button
-              onClick={handleDelete}
-              className="px-4 py-2 bg-red-100 hover:bg-red-200 text-red-600 rounded-lg transition-colors"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+            {isOwner && (
+              <button
+                onClick={handleDelete}
+                className="px-4 py-2 bg-red-100 hover:bg-red-200 text-red-600 rounded-lg transition-colors"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -298,4 +352,3 @@ const CapsuleDetail = () => {
 }
 
 export default CapsuleDetail
-

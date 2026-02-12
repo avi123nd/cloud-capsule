@@ -20,18 +20,28 @@ const MinimalLogin = () => {
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
+    console.log('Login attempt started')
 
     try {
+      console.log('Calling login API...')
       await login(email, password)
+      console.log('Login successful')
       // Don't show toast here - AuthContext already shows it
       navigate('/dashboard')
     } catch (error) {
-      // Error toast already shown by AuthContext
-      // Only show if there's an unexpected error
-      if (!error.response) {
-        toast.error('Login failed')
+      console.log('Login error caught:', error, 'message:', error.message)
+      // Show the actual error message from the backend
+      const errorMessage = error.response?.data?.error || error.message || 'Login failed'
+      console.log('Error message:', errorMessage)
+      if (errorMessage.includes('Invalid credentials') || errorMessage.includes('invalid') || errorMessage.includes('incorrect')) {
+        console.log('Showing toast: Invalid email or password')
+        toast.error('Invalid email or password')
+      } else {
+        console.log('Showing toast:', errorMessage)
+        toast.error(errorMessage)
       }
     } finally {
+      console.log('Login attempt finished')
       setLoading(false)
     }
   }

@@ -15,22 +15,31 @@ const Register = () => {
     displayName: '',
   })
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
   const { register } = useAuth()
   const navigate = useNavigate()
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value })
+    setError('')
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
+    setError('')
 
-    const result = await register(formData.email, formData.password, formData.displayName)
-    setLoading(false)
-
-    if (result.success) {
-      navigate('/dashboard')
+    try {
+      const result = await register(formData.email, formData.password, formData.displayName)
+      setLoading(false)
+      if (result.success) {
+        navigate('/dashboard')
+      }
+    } catch (err) {
+      setLoading(false)
+      const errorMessage = err.response?.data?.error || 'Registration failed. Please try again.'
+      setError(errorMessage)
+      console.error('Registration error details:', err.response?.data)
     }
   }
 
@@ -128,6 +137,18 @@ const Register = () => {
         >
           {/* Shine effect overlay */}
           <div className="absolute inset-0 shine-effect pointer-events-none" />
+          
+          {/* Error Display */}
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-red-500/20 border border-red-500/50 text-red-200 px-4 py-3 rounded-lg text-sm mb-4"
+            >
+              {error}
+            </motion.div>
+          )}
+          
           <motion.div variants={itemVariants} className="space-y-2">
             <label className="flex items-center space-x-2 text-sm font-medium">
               <User className="w-4 h-4 text-capsule-gold" />
@@ -138,6 +159,7 @@ const Register = () => {
               name="displayName"
               value={formData.displayName}
               onChange={handleChange}
+              required
               className="w-full px-4 py-3 glass rounded-lg focus:outline-none focus:ring-2 focus:ring-capsule-gold transition-all"
               placeholder="Your Name"
             />

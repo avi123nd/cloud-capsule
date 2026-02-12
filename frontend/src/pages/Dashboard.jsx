@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence, useMotionValue, useSpring } from 'framer-motion'
-import { Plus, Clock, Lock, Unlock, Calendar, FileText, Image, Video, Trash2, Download } from 'lucide-react'
+import { Plus, Clock, Lock, Unlock, Calendar, FileText, Image, Video, Trash2, Download, Edit } from 'lucide-react'
 import { format, differenceInDays } from 'date-fns'
 import Navbar from '../components/Navbar'
 import MorphingBlobs from '../components/MorphingBlobs'
@@ -15,6 +15,7 @@ const Dashboard = () => {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all') // all, locked, unlocked
+  const navigate = useNavigate()
 
   useEffect(() => {
     loadData()
@@ -26,10 +27,20 @@ const Dashboard = () => {
         capsuleAPI.getAll({ include_locked: true }),
         dashboardAPI.getStats(),
       ])
-      setCapsules(capsulesRes.data.capsules)
-      setStats(statsRes.data.statistics)
+      // Filter out capsules that no longer exist (404 responses)
+      const validCapsules = Array.isArray(capsulesRes.data.capsules) 
+        ? capsulesRes.data.capsules 
+        : []
+      setCapsules(validCapsules)
+      setStats(statsRes.data.statistics || { total: 0, locked: 0, unlocked: 0 })
     } catch (error) {
-      toast.error('Failed to load dashboard')
+      // Handle 404 gracefully - no capsules found
+      if (error.response?.status === 404) {
+        setCapsules([])
+        setStats({ total: 0, locked: 0, unlocked: 0 })
+      } else {
+        toast.error('Failed to load dashboard')
+      }
     } finally {
       setLoading(false)
     }
@@ -62,6 +73,10 @@ const Dashboard = () => {
     } catch (error) {
       toast.error('Failed to download')
     }
+  }
+
+  const handleEdit = (id) => {
+    navigate(`/capsule/${id}/edit`)
   }
 
   const getFileIcon = (type) => {
@@ -236,6 +251,7 @@ const Dashboard = () => {
                   index={index}
                   onDelete={handleDelete}
                   onDownload={handleDownload}
+                  onEdit={handleEdit}
                   getFileIcon={getFileIcon}
                 />
               ))}
@@ -324,13 +340,42 @@ const StatCard = ({ icon, label, value, color, index }) => {
   )
 }
 
-const CapsuleCard = ({ capsule, index, onDelete, onDownload, getFileIcon }) => {
+const CapsuleCard = ({ capsule, index, onDelete, onDownload, onEdit, getFileIcon }) => {
   const unlockDate = new Date(capsule.unlock_date)
   const now = new Date()
   const daysUntil = differenceInDays(unlockDate, now)
-  const isUnlocked = capsule.is_unlocked
+  const isUnlocked = capsule.is_unlocked || now > unlockDate
   const isPast = now > unlockDate
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
+  
+  // Calculate detailed time remaining
+  const getTimeRemaining = () => {
+    if (isUnlocked) return 'Unlocked'
+    
+    const totalMs = unlockDate - now
+    const days = Math.floor(totalMs / (1000 * 60 * 60 * 24))
+    const months = Math.floor(days / 30)
+    const years = Math.floor(days / 365)
+    
+    if (years > 0) {
+      const remainingMonths = Math.floor((days % 365) / 30)
+      if (remainingMonths > 0) {
+        return `${years}y ${remainingMonths}m remaining`
+      }
+      return `${years} years remaining`
+    }
+    if (months > 0) {
+      const remainingDays = days % 30
+      if (remainingDays > 0) {
+        return `${months}m ${remainingDays}d remaining`
+      }
+      return `${months} months remaining`
+    }
+    if (days > 0) {
+      return `${days} days remaining`
+    }
+    return 'Ready to open!'
+  }
 
   const handleMouseMove = (e) => {
     const rect = e.currentTarget.getBoundingClientRect()
@@ -439,7 +484,7 @@ const CapsuleCard = ({ capsule, index, onDelete, onDownload, getFileIcon }) => {
             <Calendar className="w-4 h-4" />
           </motion.div>
           <span>
-            {isUnlocked ? 'Unlocked' : isPast ? 'Ready' : `${daysUntil} days left`}
+            {getTimeRemaining()}
           </span>
         </div>
 
@@ -472,6 +517,21 @@ const CapsuleCard = ({ capsule, index, onDelete, onDownload, getFileIcon }) => {
                 <Download className="w-4 h-4 relative z-10" />
               </motion.div>
               <span className="relative z-10">Download</span>
+            </motion.button>
+          </MagneticButton>
+        )}
+        {!isUnlocked && (
+          <MagneticButton>
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={(e) => {
+                e.stopPropagation()
+                onEdit(capsule.capsule_id)
+              }}
+              className="px-3 py-2 glass rounded-lg hover:bg-yellow-500/20 transition-all"
+            >
+              <Edit className="w-4 h-4 text-yellow-400" />
             </motion.button>
           </MagneticButton>
         )}

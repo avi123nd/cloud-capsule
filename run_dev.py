@@ -67,7 +67,8 @@ def main():
     try:
         from app import create_app
         app = create_app()
-        app.run(debug=True, host='0.0.0.0', port=5000)
+        # debug=False to disable reloader so print statements show up
+        app.run(debug=False, host='0.0.0.0', port=5000, use_reloader=False)
     except ImportError as e:
         print(f"❌ Import error: {e}")
         print("Make sure all dependencies are installed: pip install -r requirements.txt")

@@ -61,9 +61,9 @@ class AuthService:
     def login(self, email: str, password: str) -> dict:
         user = self.users.find_one({'email': email.lower()})
         if not user:
-            raise Exception('Invalid credentials')
+            raise Exception('Invalid email or password')
         if not self.verify_password(password, user['password']):
-            raise Exception('Invalid credentials')
+            raise Exception('Password is incorrect')
         token = self.generate_token(str(user['_id']), user['email'])
         return {
             'token': token,
@@ -155,13 +155,13 @@ class AuthService:
             # Don't reveal if email exists or not (security best practice)
             return True
         
-        # Generate reset token (expires in 1 hour)
+        # Generate reset token (expires in 24 hours)
         reset_token = jwt.encode(
             {
                 'uid': str(user['_id']),
                 'email': user['email'],
                 'type': 'password_reset',
-                'exp': datetime.utcnow() + timedelta(hours=1)
+                'exp': datetime.utcnow() + timedelta(hours=24)
             },
             self.jwt_secret,
             algorithm='HS256'
@@ -172,7 +172,7 @@ class AuthService:
             {'_id': user['_id']},
             {'$set': {
                 'password_reset_token': reset_token,
-                'password_reset_expires': datetime.utcnow() + timedelta(hours=1),
+                'password_reset_expires': datetime.utcnow() + timedelta(hours=24),
                 'updated_at': datetime.utcnow()
             }}
         )
@@ -187,17 +187,10 @@ class AuthService:
                 raise Exception('Invalid reset token')
             
             uid = decoded['uid']
-            user = self.users.find_one({'_id': ObjectId(uid)})
-            
-            if not user:
-                raise Exception('User not found')
-            
-            # Verify token matches stored token
-            if user.get('password_reset_token') != reset_token:
-                raise Exception('Invalid or expired reset token')
             
             # Check expiration
-            if user.get('password_reset_expires') and user['password_reset_expires'] < datetime.utcnow():
+            exp = datetime.utcfromtimestamp(decoded['exp'])
+            if exp < datetime.utcnow():
                 raise Exception('Reset token has expired')
             
             # Update password and clear reset token
@@ -215,6 +208,8 @@ class AuthService:
             return True
         except jwt.ExpiredSignatureError:
             raise Exception('Reset token has expired')
+        except jwt.InvalidTokenError:
+            raise Exception('Invalid reset token')
         except Exception as e:
             raise Exception(f'Invalid reset token: {str(e)}')
 

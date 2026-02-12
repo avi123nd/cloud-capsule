@@ -22,22 +22,47 @@ class CloudinaryStorageService:
     
     def __init__(self):
         """Initialize Cloudinary with credentials from environment variables."""
+        import logging
+        import traceback
+        logger = logging.getLogger(__name__)
+        
+        print("\n=== CLOUDINARY INIT DEBUG ===")
+        
+        cloud_name = os.getenv('CLOUDINARY_CLOUD_NAME')
+        api_key = os.getenv('CLOUDINARY_API_KEY')
+        api_secret = os.getenv('CLOUDINARY_API_SECRET')
+        
+        print(f"cloud_name: {cloud_name}")
+        print(f"api_key set: {api_key is not None}")
+        print(f"api_secret set: {api_secret is not None}")
+        
+        # Validate all credentials
+        if not cloud_name:
+            print("❌ ERROR: CLOUDINARY_CLOUD_NAME is empty or not set")
+            print("=== END CLOUDINARY INIT ===\n")
+            raise ValueError("CLOUDINARY_CLOUD_NAME is empty or not set")
+        if not api_key:
+            print("❌ ERROR: CLOUDINARY_API_KEY is empty or not set")
+            print("=== END CLOUDINARY INIT ===\n")
+            raise ValueError("CLOUDINARY_API_KEY is empty or not set")
+        if not api_secret:
+            print("❌ ERROR: CLOUDINARY_API_SECRET is empty or not set")
+            print("=== END CLOUDINARY INIT ===\n")
+            raise ValueError("CLOUDINARY_API_SECRET is empty or not set")
+        
         # Configure Cloudinary
         cloudinary.config(
-            cloud_name=os.getenv('CLOUDINARY_CLOUD_NAME'),
-            api_key=os.getenv('CLOUDINARY_API_KEY'),
-            api_secret=os.getenv('CLOUDINARY_API_SECRET'),
+            cloud_name=cloud_name,
+            api_key=api_key,
+            api_secret=api_secret,
             secure=True
         )
         
-        self.cloud_name = os.getenv('CLOUDINARY_CLOUD_NAME')
+        self.cloud_name = cloud_name
         self.folder = os.getenv('CLOUDINARY_FOLDER', 'time_capsules')
         
-        # Validate configuration
-        if not self.cloud_name:
-            raise ValueError("CLOUDINARY_CLOUD_NAME environment variable is required")
-        
-        logger.info(f"Cloudinary storage initialized with folder: {self.folder}")
+        print(f"✅ SUCCESS: Cloudinary configured: cloud_name={self.cloud_name}, folder={self.folder}")
+        print("=== END CLOUDINARY INIT ===\n")
     
     def upload_encrypted_file(self, encrypted_data: bytes, capsule_id: str, content_type: str = 'application/octet-stream') -> dict:
         """
@@ -55,9 +80,15 @@ class CloudinaryStorageService:
             # Generate unique public_id for the file
             public_id = f"{self.folder}/{capsule_id}"
             
-            # Upload to Cloudinary
+            # Convert bytes to base64 string
+            b64_data = base64.b64encode(encrypted_data).decode('utf-8')
+            
+            # Use data URI format for base64 upload
+            data_uri = f"data:application/octet-stream;base64,{b64_data}"
+            
+            # Upload to Cloudinary using file parameter with data URI
             result = cloudinary.uploader.upload(
-                base64.b64encode(encrypted_data).decode('utf-8'),
+                data_uri,
                 resource_type='raw',
                 public_id=public_id,
                 folder=self.folder,
@@ -69,7 +100,8 @@ class CloudinaryStorageService:
                 }
             )
             
-            logger.info(f"Uploaded encrypted file to Cloudinary: {public_id}")
+            print(f"✅ Uploaded to Cloudinary: {result.get('public_id')}")
+            print(f"URL: {result.get('secure_url')}")
             
             return {
                 'public_id': result['public_id'],
@@ -80,7 +112,9 @@ class CloudinaryStorageService:
             }
             
         except Exception as e:
-            logger.error(f"Failed to upload file to Cloudinary: {e}")
+            print(f"❌ Failed to upload file to Cloudinary: {e}")
+            import traceback
+            traceback.print_exc()
             raise Exception(f"Cloudinary upload failed: {str(e)}")
     
     def get_encrypted_file(self, public_id: str) -> bytes:
@@ -94,17 +128,14 @@ class CloudinaryStorageService:
             bytes: The encrypted file data
         """
         try:
-            # Get file from Cloudinary
+            # Use Cloudinary's built-in download API
             result = cloudinary.api.resource(public_id, resource_type='raw')
-            
-            # Download the file
             url = result['secure_url']
             
-            import requests
-            response = requests.get(url)
-            response.raise_for_status()
-            
-            return response.content
+            # Download using urllib (built into Python)
+            import urllib.request
+            with urllib.request.urlopen(url) as response:
+                return response.read()
             
         except Exception as e:
             logger.error(f"Failed to retrieve file from Cloudinary: {e}")

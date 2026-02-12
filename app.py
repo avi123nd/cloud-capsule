@@ -6,12 +6,14 @@ JWT-based user authentication, capsule management, and scheduling functionality.
 """
 
 import os
+import traceback
 from datetime import datetime
 from flask import Flask, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
 from pymongo import MongoClient
 import jwt
+import os
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from services.auth_service import AuthService
@@ -20,7 +22,11 @@ from services.capsule_service import CapsuleService
 from services.scheduler_service import SchedulerService
 from services.email_service import EmailService
 
-load_dotenv()
+# Load .env from project directory
+env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+load_dotenv(dotenv_path=env_path)
+print(f"📁 Loading .env from: {env_path}")
+print(f"🔍 CLOUDINARY_CLOUD_NAME: {os.getenv('CLOUDINARY_CLOUD_NAME')}")
 
 MONGO_URI = os.getenv('MONGO_URI')
 JWT_SECRET = os.getenv('JWT_SECRET')
@@ -52,7 +58,8 @@ def create_app():
     encryption_service = EncryptionService()
     capsule_service = CapsuleService(db, encryption_service)
     email_service = EmailService()
-    scheduler_service = SchedulerService(db, capsule_service, email_service)
+    # Pass Flask app to scheduler for proper context handling
+    scheduler_service = SchedulerService(db, capsule_service, email_service, app=app)
     scheduler_service.start_scheduler()
 
     # Register endpoints (update routes files to take new services)
@@ -70,6 +77,68 @@ def create_app():
     @app.route('/health')
     def health_check():
         return jsonify({'status': 'healthy', 'time': datetime.utcnow().isoformat()})
+    
+    @app.route('/test-email')
+    def test_email():
+        """Test endpoint to check if email service is working."""
+        try:
+            test_email_addr = os.getenv('EMAIL_FROM')
+            email_service.send_capsule_created_notification(
+                recipient_email=test_email_addr,
+                recipient_name='Test User',
+                sender_name='Test Sender',
+                unlock_date=datetime.utcnow()
+            )
+            return jsonify({'message': f'Test email sent to {test_email_addr}'})
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+    
+    
+    @app.route('/debug/services')
+    def debug_services():
+        """
+        Debug endpoint to check all services are working.
+        """
+        try:
+            from services.capsule_service import CapsuleService
+            from services.encryption_service import EncryptionService
+            from services.cloudinary_service import CloudinaryStorageService
+            
+            results = {}
+            
+            # Test encryption service
+            try:
+                enc_svc = EncryptionService()
+                results['encryption'] = {'status': 'ok', 'key_length': len(enc_svc.key)}
+            except Exception as e:
+                results['encryption'] = {'status': 'error', 'message': str(e)}
+            
+            # Test capsule service
+            try:
+                cap_svc = CapsuleService(db, enc_svc if 'enc_svc' in dir() else EncryptionService())
+                results['capsule'] = {
+                    'status': 'ok',
+                    'cloudinary_available': cap_svc.cloudinary_storage is not None,
+                    'gridfs_available': hasattr(cap_svc, 'fs')
+                }
+            except Exception as e:
+                results['capsule'] = {'status': 'error', 'message': str(e)}
+            
+            # Test MongoDB connection
+            try:
+                db.command('ping')
+                results['mongodb'] = {'status': 'ok', 'database': get_database_name()}
+            except Exception as e:
+                results['mongodb'] = {'status': 'error', 'message': str(e)}
+            
+            return jsonify(results)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                'error': str(e),
+                'traceback': traceback.format_exc()
+            }), 500
 
     @app.errorhandler(413)
     def too_large(e):
@@ -81,7 +150,16 @@ def create_app():
 
     @app.errorhandler(500)
     def internal_error(e):
-        return jsonify({'error': 'Internal server error', 'message': 'An unexpected error occurred'}), 500
+        import traceback
+        error_msg = str(e)
+        # Get the original error if available
+        if hasattr(e, 'original_exception'):
+            error_msg = str(e.original_exception)
+        return jsonify({
+            'error': 'Internal server error',
+            'message': error_msg,
+            'traceback': traceback.format_exc()
+        }), 500
 
     return app
 

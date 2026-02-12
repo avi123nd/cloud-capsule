@@ -25,12 +25,15 @@ api.interceptors.request.use(
 
 // Response interceptor for error handling
 api.interceptors.response.use(
-  (response) => response,
+  response => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
-      window.location.href = '/login'
+      // Don't redirect if already on login page
+      if (!window.location.pathname.includes('/login')) {
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(error)
   }
@@ -69,6 +72,7 @@ export const capsuleAPI = {
   unlock: (id) => api.post(`/capsules/${id}/unlock`),
   getMetadata: (id) => api.get(`/capsules/${id}/metadata`),
   preview: (id) => api.get(`/capsules/${id}/preview`),
+  previewEdit: (id) => api.get(`/capsules/${id}/preview-edit`),
   download: (id) => api.get(`/capsules/${id}/download`, { responseType: 'blob' }),
 }
 

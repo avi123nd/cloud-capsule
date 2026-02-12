@@ -22,11 +22,18 @@ class EncryptionService:
         """Get the encryption key from environment variables."""
         key = os.getenv('ENCRYPTION_KEY')
         if not key:
-            raise ValueError("ENCRYPTION_KEY environment variable is required")
+            raise ValueError(
+                "ENCRYPTION_KEY environment variable is required. "
+                "Generate a 32-character key and add it to your .env file."
+            )
         
         # Ensure key is 32 bytes (256 bits) for AES-256
         if len(key) != 32:
-            raise ValueError("ENCRYPTION_KEY must be exactly 32 characters long")
+            raise ValueError(
+                f"ENCRYPTION_KEY must be exactly 32 characters long. "
+                f"Current length: {len(key)} characters. "
+                f"Please update your .env file."
+            )
         
         return key.encode('utf-8')
     

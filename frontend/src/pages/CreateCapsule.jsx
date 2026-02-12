@@ -14,6 +14,7 @@ const CreateCapsule = () => {
   const [file, setFile] = useState(null)
   const [unlockDate, setUnlockDate] = useState('')
   const [description, setDescription] = useState('')
+  const [recipientEmail, setRecipientEmail] = useState('')
   const [loading, setLoading] = useState(false)
   const [dragActive, setDragActive] = useState(false)
   const navigate = useNavigate()
@@ -64,6 +65,15 @@ const CreateCapsule = () => {
       formData.append('file', file)
       formData.append('unlock_date', new Date(unlockDate).toISOString())
       formData.append('description', description)
+      
+      // Add recipient email (required)
+      if (recipientEmail && recipientEmail.trim()) {
+        formData.append('recipient_email', recipientEmail.trim())
+      } else {
+        toast.error('Please enter a recipient email')
+        setLoading(false)
+        return
+      }
 
       await capsuleAPI.create(formData)
       toast.success('Capsule created successfully!')
@@ -200,16 +210,18 @@ const CreateCapsule = () => {
             >
               <label className="block text-sm font-medium mb-2 flex items-center space-x-2">
                 <Calendar className="w-4 h-4 text-capsule-gold" />
-                <span>Unlock Date</span>
+                <span>Unlock Date & Time (select date and clock time)</span>
               </label>
               <input
                 type="datetime-local"
                 value={unlockDate}
                 onChange={(e) => setUnlockDate(e.target.value)}
-                min={getTomorrowDate()}
                 required
                 className="w-full px-4 py-3 glass rounded-lg focus:outline-none focus:ring-2 focus:ring-capsule-gold transition-all"
               />
+              <p className="text-xs text-gray-400 mt-1">
+                Set any date and time (up to 10 years from today)
+              </p>
             </motion.div>
 
             {/* Description */}
@@ -225,6 +237,26 @@ const CreateCapsule = () => {
                 rows={4}
                 className="w-full px-4 py-3 glass rounded-lg focus:outline-none focus:ring-2 focus:ring-capsule-gold transition-all resize-none"
                 placeholder="Add a description for your time capsule..."
+              />
+            </motion.div>
+
+            {/* Recipient Email */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.35 }}
+            >
+              <label className="block text-sm font-medium mb-2 flex items-center space-x-2">
+                <span className="text-red-400">*</span>
+                <span>Recipient Email (Required)</span>
+              </label>
+              <input
+                type="email"
+                value={recipientEmail}
+                onChange={(e) => setRecipientEmail(e.target.value)}
+                required
+                className="w-full px-4 py-3 glass rounded-lg focus:outline-none focus:ring-2 focus:ring-capsule-gold transition-all"
+                placeholder="friend@example.com"
               />
             </motion.div>
 

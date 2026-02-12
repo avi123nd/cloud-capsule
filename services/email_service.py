@@ -164,6 +164,36 @@ class EmailService:
         )
         self._send(recipient_email, subject, body)
 
+    def send_capsule_date_updated_notification(
+        self,
+        recipient_email: str,
+        recipient_name: str | None,
+        sender_name: str | None,
+        old_unlock_date: datetime,
+        new_unlock_date: datetime,
+    ):
+        """
+        Notify recipient that their capsule unlock date has been updated.
+        """
+        display_recipient = recipient_name or "there"
+        display_sender = sender_name or "the sender"
+        
+        # Format dates nicely
+        old_date_str = old_unlock_date.strftime('%Y-%m-%d at %H:%M UTC')
+        new_date_str = new_unlock_date.strftime('%Y-%m-%d at %H:%M UTC')
+        
+        subject = "Your time capsule unlock date has been updated"
+        body = (
+            f"Hi {display_recipient}\n\n"
+            f"The unlock date for your time capsule from {display_sender} has been updated.\n\n"
+            f"Old unlock date: {old_date_str}\n"
+            f"New unlock date: {new_date_str}\n\n"
+            "The capsule will now unlock on the new date.\n\n"
+            "Best regards,\n"
+            "Time Capsule Cloud"
+        )
+        self._send(recipient_email, subject, body)
+
     def send_password_reset_email(
         self,
         recipient_email: str,

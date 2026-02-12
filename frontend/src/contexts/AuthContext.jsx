@@ -55,14 +55,15 @@ export const AuthProvider = ({ children }) => {
       toast.success('Welcome back!')
       return { success: true }
     } catch (error) {
-      const message = error.response?.data?.error || 'Login failed'
-      toast.error(message)
-      return { success: false, error: message }
+      const message = error.response?.data?.error || error.message || 'Login failed'
+      console.error('Login error:', error.response?.data || message)
+      throw { response: error.response, message: message }
     }
   }
 
   const register = async (email, password, displayName) => {
     try {
+      console.log('Register request:', { email, display_name: displayName })
       const response = await authAPI.register({ email, password, display_name: displayName })
       const { token, user: userData } = response.data
       
@@ -75,6 +76,7 @@ export const AuthProvider = ({ children }) => {
       return { success: true }
     } catch (error) {
       const message = error.response?.data?.error || 'Registration failed'
+      console.error('Registration error:', error.response?.data || message)
       // Re-throw error so component can catch and handle it
       throw error
     }

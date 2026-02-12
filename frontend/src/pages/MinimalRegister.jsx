@@ -24,6 +24,25 @@ const MinimalRegister = () => {
     e.preventDefault()
     setLoading(true)
 
+    // Client-side validation
+    if (!formData.display_name || formData.display_name.trim() === '') {
+      toast.error('Display name is required')
+      setLoading(false)
+      return
+    }
+    
+    if (!formData.email || formData.email.trim() === '') {
+      toast.error('Email is required')
+      setLoading(false)
+      return
+    }
+    
+    if (!formData.password || formData.password.length < 8) {
+      toast.error('Password must be at least 8 characters')
+      setLoading(false)
+      return
+    }
+
     try {
       await register(formData.email, formData.password, formData.display_name)
       toast.success('Account created successfully')
@@ -65,8 +84,20 @@ const MinimalRegister = () => {
         errorMessage = error.message
       }
       
-      // Show user-friendly message for duplicate email (409 Conflict)
-      if (statusCode === 409) {
+      // Show user-friendly message for different error types
+      if (statusCode === 400) {
+        // Bad request - validation errors
+        if (errorMessage.includes('email')) {
+          toast.error('Please enter a valid email address')
+        } else if (errorMessage.includes('password')) {
+          toast.error('Password must be at least 8 characters with uppercase, lowercase, and number')
+        } else if (errorMessage.includes('Display name')) {
+          toast.error(errorMessage)
+        } else {
+          toast.error(errorMessage)
+        }
+      } else if (statusCode === 409) {
+        // Conflict - duplicate email or display name
         const lowerMessage = errorMessage.toLowerCase()
         if (lowerMessage.includes('email') || 
             lowerMessage.includes('already exists') ||
@@ -74,14 +105,9 @@ const MinimalRegister = () => {
             lowerMessage.includes('account with this email')) {
           toast.error('An account with this email already exists. Please use a different email or sign in.')
         } else {
-          // For other 409 errors (like display name), show the backend message
           toast.error(errorMessage)
         }
-      } else if (statusCode === 400) {
-        // Bad request - show the error message from backend
-        toast.error(errorMessage)
       } else {
-        // For other API errors, show the error message from backend
         toast.error(errorMessage)
       }
     } finally {
@@ -149,6 +175,7 @@ const MinimalRegister = () => {
                   name="display_name"
                   value={formData.display_name}
                   onChange={handleChange}
+                  required
                   className="luxury-input has-left-icon"
                   placeholder="Your name"
                 />

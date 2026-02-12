@@ -7,6 +7,8 @@ import MinimalDashboard from './pages/MinimalDashboard'
 import MinimalCreateCapsule from './pages/MinimalCreateCapsule'
 import CapsuleDetail from './pages/CapsuleDetail'
 import UpdateCapsule from './pages/UpdateCapsule'
+import ResetPassword from './pages/ResetPassword'
+import Landing from './pages/Landing'
 import PrivateRoute from './components/PrivateRoute'
 import './App.css'
 
@@ -41,6 +43,7 @@ function App() {
             }}
           />
           <Routes>
+            <Route path="/" element={<Landing />} />
             <Route path="/login" element={<MinimalLogin />} />
             <Route path="/register" element={<MinimalRegister />} />
             <Route
@@ -75,7 +78,8 @@ function App() {
                 </PrivateRoute>
               }
             />
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/dashboard" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>
       </Router>
